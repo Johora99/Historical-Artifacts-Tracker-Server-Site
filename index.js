@@ -29,10 +29,20 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
-
-
-
-
+    
+    const allArtifactsCollection = client.db('historicalArtifactsTracker').collection('allArtifacts');
+  
+    // get latest 6 artifacts data =============================
+    app.get('/latestArtifacts',async(req,res)=>{
+      const result = await allArtifactsCollection.find().sort({_id : -1}).limit(6).toArray();
+      res.send(result);
+    })
+    // get all artifacts data =======================
+   app.get('/allArtifacts',async(req,res)=>{
+    const result = await allArtifactsCollection.find().toArray();
+    res.send(result);
+   })
+   
 
 
 
