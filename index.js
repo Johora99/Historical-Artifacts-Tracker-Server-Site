@@ -39,7 +39,12 @@ async function run() {
     })
     // get all artifacts data =======================
    app.get('/allArtifacts',async(req,res)=>{
-    const result = await allArtifactsCollection.find().sort({_id : -1}).toArray();
+    const email = req.query.email
+    let filter = {};
+    if(email){
+      filter = {'artifact_adder.artifact_added_email':email};
+    }
+    const result = await allArtifactsCollection.find(filter).sort({_id : -1}).toArray();
     res.send(result);
    })
   //  get artifact in the base of id ==============================
@@ -66,8 +71,7 @@ async function run() {
     const filter = { 'liked_by': userEmail, 'artifacts_Info._id': artifact_id };
     const findLike = await likeCollection.findOne(filter);
     if(findLike){
-      console.log('already liked')
-      return ('already liked')
+      return res.status(400).json({ message: 'You have already liked this artifact!' });
     }
     const query = {_id : new ObjectId(artifact_id)};
     const result = await likeCollection.insertOne(newLike);
@@ -77,8 +81,24 @@ async function run() {
     const updateLike = allArtifactsCollection.updateOne(query,update)
     res.send(result);
   })
-  
-
+  //  update artifacts data =====================================
+  app.put('/updateArtifacts/:id',async(req,res)=>{
+    const updateData = req.body;
+    const id = req.params.id;
+    const query = {_id : new ObjectId(id)};
+    const update = {
+      $set : updateData,
+    }
+    const result = await allArtifactsCollection.updateOne(query,update);
+    res.send(result)
+  })
+  // delete my posted artifacts ================================
+  app.delete('/myArtifacts/:id',async(req,res)=>{
+    const id = req.params.id;
+    const query = {_id : new ObjectId(id)};
+    const result = await allArtifactsCollection.deleteOne(query);
+    res.send(result);
+  })
 
 
 
