@@ -39,11 +39,16 @@ async function run() {
     })
     // get all artifacts data =======================
    app.get('/allArtifacts',async(req,res)=>{
-    const email = req.query.email
+    const email = req.query.email;
+    const search = req.query.search;
     let filter = {};
+    let options = {};
     if(email){
       filter = {'artifact_adder.artifact_added_email':email};
     }
+    if (search) {
+    filter.artifact_name = { $regex: search, $options: 'i' };
+  }
     const result = await allArtifactsCollection.find(filter).sort({_id : -1}).toArray();
     res.send(result);
    })
