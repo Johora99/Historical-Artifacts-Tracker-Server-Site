@@ -61,7 +61,18 @@ async function run() {
     const result = await allArtifactsCollection.insertOne(newArtifact);
     res.send(result);
   })
-
+ 
+  // get like by user =============================
+  app.get('/like',async(req,res)=>{
+    const email = req.query.email;
+    let filter = {};
+    if(email){
+      filter = {liked_by : email};
+    }
+    const result = await likeCollection.find(filter).toArray();
+    res.send(result);
+  })
+  
   // like by user ====================================
   app.post('/like',async(req,res)=>{
     const newLike = req.body;
