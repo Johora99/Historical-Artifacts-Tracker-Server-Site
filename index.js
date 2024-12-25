@@ -1,11 +1,19 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors({
+  origin:['http://localhost:5173'],
+  credentials:true
+}));
+
 app.use(express.json());
+app.use(cookieParser());
+
 
 app.get('/',async(req,res)=>{
   res.send('My Historical Artifacts Tracker')
@@ -25,6 +33,19 @@ const client = new MongoClient(uri, {
   }
 });
 
+const verifyToken = (req,res,next)=>{
+ const token = req.cookies?.token;
+ if(!token){
+  return res.status(401).send({message:'unauthorized access'})
+ }
+ jwt.verify(token,process.env.JWT_SECRET_KEY,(err,decoded)=>{
+  if(err){
+    return res.status(401).send({message:'unauthorized access'})
+  }
+  req.user = decoded;
+ })
+  next();
+}
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -32,44 +53,72 @@ async function run() {
     
     const allArtifactsCollection = client.db('historicalArtifactsTracker').collection('allArtifacts');
     const likeCollection = client.db('historicalArtifactsTracker').collection('likeByUser');
+
+  // generate jwt token ======================
+  app.post('/jwt',(req,res)=>{
+      const email = req.body;
+      const token = jwt.sign(email,process.env.JWT_SECRET_KEY,{
+        expiresIn:'1d'
+      });
+      res.cookie('token',token,{
+        httpOnly:true,
+        secure:process.env.NODE_ENV === 'production',
+        sameSite:process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+      })
+      .send({success:true})
+     })
+
+    //  remove token after logout ===============================
+    app.get('/removeToken',async(req,res)=>{
+    res.clearCookie('token',{
+    maxAge:0,
+    secure:process.env.NODE_ENV === 'production',
+    sameSite:process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+
+    }).send({success:true})
+    })
+
+
+
     // get latest 6 artifacts data =============================
     app.get('/latestArtifacts',async(req,res)=>{
-      const result = await allArtifactsCollection.find().sort({_id : -1}).limit(6).toArray();
+      const result = await allArtifactsCollection.find().sort({like_count : -1}).limit(6).toArray();
       res.send(result);
     })
     // get all artifacts data =======================
-   app.get('/allArtifacts',async(req,res)=>{
+   app.get('/allArtifacts',verifyToken,async(req,res)=>{
     const email = req.query.email;
+      const decodedEmail = req.user?.email;
     const search = req.query.search;
     let filter = {};
-    let options = {};
     if(email){
+      if(decodedEmail !== email){
+      return res.status(401).send({message:'unauthorized access'})
+    }
       filter = {'artifact_adder.artifact_added_email':email};
     }
     if (search) {
     filter.artifact_name = { $regex: search, $options: 'i' };
   }
-    const result = await allArtifactsCollection.find(filter).sort({_id : -1}).toArray();
+    const result = await allArtifactsCollection.find(filter).sort({like_count : -1}).toArray();
     res.send(result);
    })
   //  get artifact in the base of id ==============================
-  app.get('/allArtifacts/:id',async(req,res)=>{
+  app.get('/allArtifacts/:id',verifyToken,async(req,res)=>{
     const id = req.params.id;
     const query = {_id: new ObjectId(id)};
     const result = await allArtifactsCollection.findOne(query);
   
     res.send(result)
   })
-  //  post artifact in database ==========================
-  app.post('/allArtifacts',async(req,res)=>{
-    const newArtifact = req.body;
-    const result = await allArtifactsCollection.insertOne(newArtifact);
-    res.send(result);
-  })
- 
+  
   // get like by user =============================
-  app.get('/like',async(req,res)=>{
+  app.get('/like',verifyToken,async(req,res)=>{
     const email = req.query.email;
+    const decodedEmail = req.user?.email;
+    if(decodedEmail !== email){
+      return res.status(401).send({message:'unauthorized access'})
+    }
     let filter = {};
     if(email){
       filter = {liked_by : email};
@@ -77,26 +126,62 @@ async function run() {
     const result = await likeCollection.find(filter).toArray();
     res.send(result);
   })
-  
-  // like by user ====================================
-  app.post('/like',async(req,res)=>{
-    const newLike = req.body;
-    const userEmail = newLike?.liked_by;
-    // const id = newLike.artifacts_Info?.id;
-    const artifact_id = newLike.artifacts_Info._id;
-    const filter = { 'liked_by': userEmail, 'artifacts_Info._id': artifact_id };
-    const findLike = await likeCollection.findOne(filter);
-    if(findLike){
-      return res.status(400).json({ message: 'You have already liked this artifact!' });
-    }
-    const query = {_id : new ObjectId(artifact_id)};
-    const result = await likeCollection.insertOne(newLike);
-    const update = {
-      $inc : {like_count : 1},
-    }
-    const updateLike = allArtifactsCollection.updateOne(query,update)
+  //  post artifact in database ==========================
+  app.post('/allArtifacts',async(req,res)=>{
+    const newArtifact = req.body;
+    const result = await allArtifactsCollection.insertOne(newArtifact);
     res.send(result);
   })
+  
+  // like by user ====================================
+app.post('/like', async (req, res) => {
+  const newLike = req.body;
+  const userEmail = newLike?.liked_by;
+  const artifactId = newLike?.artifacts_Info?._id;
+
+  if (!userEmail || !artifactId) {
+    return res.status(400).json({ message: 'Invalid request data!' });
+  }
+
+  try {
+    // Check if the user has already liked the artifact
+    const filter = { 'liked_by': userEmail, 'artifacts_Info._id': artifactId };
+    const existingLike = await likeCollection.findOne(filter);
+
+    if (existingLike) {
+      // If the user has already liked, remove the like and decrement the like_count
+      await likeCollection.deleteOne(filter);
+
+      const artifactFilter = { _id: new ObjectId(artifactId) };
+      const update = { $inc: { like_count: -1 } };
+      const updateResult = await allArtifactsCollection.updateOne(artifactFilter, update);
+
+      if (updateResult.modifiedCount === 0) {
+        return res.status(404).json({ message: 'Artifact not found!' });
+      }
+
+      return res.status(200).json({ message: 'Disliked successfully!' });
+    } else {
+      // If the user has not liked, add a new like and increment the like_count
+      const result = await likeCollection.insertOne(newLike);
+
+      const artifactFilter = { _id: new ObjectId(artifactId) };
+      const update = { $inc: { like_count: 1 } };
+      const updateResult = await allArtifactsCollection.updateOne(artifactFilter, update);
+
+      if (updateResult.modifiedCount === 0) {
+        return res.status(404).json({ message: 'Artifact not found!' });
+      }
+
+      return res.status(201).json({ message: 'Liked successfully!', result });
+    }
+  } catch (error) {
+    console.error('Error handling like/dislike:', error);
+    res.status(500).json({ message: 'Internal server error!' });
+  }
+});
+
+
   //  update artifacts data =====================================
   app.put('/updateArtifacts/:id',async(req,res)=>{
     const updateData = req.body;
