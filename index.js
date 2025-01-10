@@ -40,7 +40,7 @@ const verifyToken = (req,res,next)=>{
  }
  jwt.verify(token,process.env.JWT_SECRET_KEY,(err,decoded)=>{
   if(err){
-    return res.status(401).send({message:'unauthorized access'})
+    return res.status(403).send({message:'unauthorized access'})
   }
   req.user = decoded;
  })
@@ -72,6 +72,7 @@ async function run() {
     app.get('/removeToken',async(req,res)=>{
     res.clearCookie('token',{
     maxAge:0,
+    httpOnly:true,
     secure:process.env.NODE_ENV === 'production',
     sameSite:process.env.NODE_ENV === 'production' ? 'none' : 'strict',
 
@@ -86,17 +87,17 @@ async function run() {
       res.send(result);
     })
     // get all artifacts data =======================
-   app.get('/allArtifacts',verifyToken,async(req,res)=>{
-    const email = req.query.email;
-      const decodedEmail = req.user?.email;
+   app.get('/allArtifacts',async(req,res)=>{
+    // const email = req.query.email;
+      // const decodedEmail = req.user?.email;
     const search = req.query.search;
     let filter = {};
-    if(email){
-      if(decodedEmail !== email){
-      return res.status(401).send({message:'unauthorized access'})
-    }
-      filter = {'artifact_adder.artifact_added_email':email};
-    }
+    // if(email){
+    //   if(decodedEmail !== email){
+    //   return res.status(401).send({message:'unauthorized access'})
+    // }
+    //   filter = {'artifact_adder.artifact_added_email':email};
+    // }
     if (search) {
     filter.artifact_name = { $regex: search, $options: 'i' };
   }
@@ -104,14 +105,37 @@ async function run() {
     res.send(result);
    })
   //  get artifact in the base of id ==============================
-  app.get('/allArtifacts/:id',verifyToken,async(req,res)=>{
+  app.get('/allArtifacts/byId/:id',verifyToken,async(req,res)=>{
     const id = req.params.id;
     const query = {_id: new ObjectId(id)};
     const result = await allArtifactsCollection.findOne(query);
   
     res.send(result)
   })
-  
+
+  // get email base data =============================
+app.get('/allArtifacts/byEmail/:email',verifyToken, async (req, res) => {
+  try {
+    const email = req.params.email;
+    console.log(email)
+    const decodedEmail = req.user?.email;
+
+    // Check authorization
+    if (decodedEmail !== email) {
+      return res.status(401).send({ message: 'Unauthorized access' });
+    }
+
+    // Query artifacts added by the user
+    const query = { 'artifact_adder.artifact_added_email': email };
+    const result = await allArtifactsCollection.find(query).toArray();
+    res.send(result);
+  } catch (error) {
+    // Handle any errors
+    res.status(500).send({ message: 'Internal server error', error: error.message });
+  }
+});
+
+
   // get like by user =============================
   app.get('/like',verifyToken,async(req,res)=>{
     const email = req.query.email;
@@ -144,12 +168,12 @@ app.post('/like', async (req, res) => {
   }
 
   try {
-    // Check if the user has already liked the artifact
+
     const filter = { 'liked_by': userEmail, 'artifacts_Info._id': artifactId };
     const existingLike = await likeCollection.findOne(filter);
 
     if (existingLike) {
-      // If the user has already liked, remove the like and decrement the like_count
+    
       await likeCollection.deleteOne(filter);
 
       const artifactFilter = { _id: new ObjectId(artifactId) };
@@ -162,7 +186,7 @@ app.post('/like', async (req, res) => {
 
       return res.status(200).json({ message: 'Disliked successfully!' });
     } else {
-      // If the user has not liked, add a new like and increment the like_count
+  
       const result = await likeCollection.insertOne(newLike);
 
       const artifactFilter = { _id: new ObjectId(artifactId) };
