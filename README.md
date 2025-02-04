@@ -60,5 +60,16 @@ Response: Array of liked artifacts.
 - If the user hasn't liked the artifact, it will be liked and the like count will increment.
 Response: { "message": "Liked successfully!" } or { "message": "Disliked successfully!" }
 
+## 🔧 Installation
+```sh
+git clone https://github.com/Johora99/Historical-Artifacts-Tracker-Server-Site.git
 
+cd Historical-Artifacts-Tracker
 
+npm install
+
+nodemon index.js
+```
+
+## Live Link
+https://benevolent-cat-fcdbdd.netlify.app
